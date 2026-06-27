@@ -1,0 +1,312 @@
+.navbar {
+  position: relative;
+  display: flex;
+}
+
+.theme-toggle{
+  display: flex;
+  /* justify-content:space-between; */
+  justify-content: center;
+  align-items: center;
+  gap: 70px;
+  /* border: 2px solid red; */
+  border-radius: 25px;
+  /* padding-left: 10px; */
+  height: 40px;
+  /* padding-right: 10px; */
+  background-color: white;
+  /* align-items: center; */
+  /* gap: 10px; */
+}
+
+.newchat{
+  display: flex;
+  /* margin-top: 15px; */
+  cursor: pointer;
+  /* justify-content:space-between; */
+  justify-content: center;
+  align-items: center;
+  gap: 90px;
+  /* border: 2px solid red; */
+  border-radius: 25px;
+  /* padding-left: 10px; */
+  height: 40px;
+  /* padding-right: 10px; */
+  background-color:white;
+  /* align-items: center; */
+  /* gap: 10px; */
+  transition: 0.5s;
+  
+}
+.newchat:hover{
+  transform: scale(1.02);
+  /* background-color: #333338; */
+  border: 1px solid rgba(0, 0, 0, 0.526);
+}
+.side{
+  cursor:pointer;
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  /* display: none; */
+}
+.sidebar {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  top: 0;
+  left:0px;
+  width: 280px;
+  /* display: none; */
+  height: 100%;
+  background-color:#e7e7e8;
+  /* color: white; */
+  transition: right 0.3s;
+  padding: 15px;
+  /* border-right: 4px solid #757576; */
+  transition: left 0.5s ease, transform 0.3s ease;
+  transform: scale(1);
+}
+.opensidebar{
+  display: flex;
+
+  /* margin: 10px 20px; */
+  gap: 20px;
+  width: 280px;
+  /* border: 2px solid red; */
+}
+.logoimg{
+  display: flex;
+  justify-content: center;
+  /* width: 100px; */
+  height: 100px;
+}
+.newchat1{
+  
+  display: flex;
+  /* margin-top: 15px; */
+  cursor: pointer;
+  /* justify-content:space-between; */
+  justify-content: center;
+  align-items: center;
+  gap: 60px;
+  /* border: 2px solid red; */
+  border-radius: 25px;
+  /* padding-left: 10px; */
+  height: 35px;
+  width: 200px;
+  /* padding-right: 10px; */
+  background-color:rgba(199, 199, 199, 0.773);
+  /* align-items: center; */
+  /* gap: 10px; */
+  transition: 0.5s;
+  
+}
+.newchat1:hover{
+  transform: scale(1.02);
+  /* background-color: #333338; */
+  border: 1px solid rgba(0, 0, 0, 0.526);
+}
+.switch {
+  --width-of-switch: 3.5em;
+  --height-of-switch: 1.6em;
+  --size-of-icon: 1.2em;
+  --slider-offset: 0.3em;
+  position: relative;
+  width: var(--width-of-switch);
+  height: var(--height-of-switch);
+  display: inline-block;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #f4f4f5;
+  transition: .4s;
+  border-radius: 30px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: var(--size-of-icon);
+  width: var(--size-of-icon);
+  border-radius: 20px;
+  left: var(--slider-offset);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #fbbf24;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #374151;
+}
+
+input:checked + .slider:before {
+  left: calc(100% - (var(--size-of-icon) + var(--slider-offset)));
+  background: #94a3b8;
+  box-shadow: inset -3px -2px 5px -2px #1f2937;
+}
+.bgimg{
+  width: 90vw;
+  height: 90vh;
+  object-fit: cover;
+  object-position: center;
+  /* position: relative; */
+  /* left: 100px; */
+}
+
+.question-list{
+  display: flex;
+  flex-direction: column;
+  /* border: 2px solid red; */
+  /* align-items: center; */
+  justify-content: center;
+  height: 280px;
+  gap: 10px;
+}
+.faqs{
+  margin-bottom: 0px;
+  font-size: 18px;
+  font-weight: 600;
+  /* margin-top: 30px; */
+}
+.question{
+  /* background-color: yellow; */
+  padding: 8px;
+  margin-bottom: 0px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: 0.3s;
+  /* height:35px ; */
+  background-color: white;
+}
+.question:hover{
+  border: 0.0004px solid rgba(0, 0, 0, 0.531);
+  /* color: white; */
+  transform: scale(1.05);
+}
+
+/* @media(max-width:768px){
+  .navb{
+    margin: 20px 30px;
+  }
+  .nav-connect{
+    display: none;
+  }
+  .nav_menu_open{
+    width: 35px;
+    cursor: pointer;
+    display: block;
+    right: 25px;
+  }
+  body.light .nav-menu {
+    background: #f0e4f7;
+   color: #000;
+ }
+  .nav_menu_close{
+    width: 30px;
+    cursor: pointer;
+    display: block;
+    position: relative;
+  }
+  .sidebar{
+    box-sizing: border-box;
+    padding-left: 30px;
+    position: fixed;
+    flex-direction: column;
+    align-items: start;
+    top: 0;
+    gap: 30px;
+    background: #1F0016;
+    width: 250px;
+    height: 100%;
+    z-index: 2;
+    transition: right 0.5s;
+    right: -250px;
+  }
+  .nav-menu li{
+    font-size: 18px;
+    flex-direction: row;
+    display: flex;
+    align-self: start;
+    gap: 20px;
+  }
+} */
+/* @media (max-width: 1035px) {
+  .navb {
+    margin: 20px 40px;
+  }
+  .nav-menu{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    list-style: none;
+    gap: 20px;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .nav-menu li{
+    cursor: pointer;
+    display: flex;
+    gap: 20px;
+  }
+  
+} */
+
+/* Update theme-specific styles */
+.navbar.dark,
+.sidebar.dark {
+  background-color: #202123;
+}
+
+.sidebar.dark {
+  background-color: #202123;
+  border-right: 1px solid #4d4d4f;
+}
+
+.sidebar.dark .newchat,
+.sidebar.dark .newchat1,
+.sidebar.dark .theme-toggle {
+  background-color: #2d2d30;
+}
+
+.sidebar.dark .newchat p,
+.sidebar.dark .newchat1 p,
+.sidebar.dark .theme-toggle p,
+.sidebar.dark .faqs,
+.sidebar.dark .question {
+  color: #ffffff;
+}
+
+.sidebar.dark .question {
+  background-color: #2d2d30;
+}
+
+/* Update hover states for dark theme */
+.sidebar.dark .question:hover,
+.sidebar.dark .newchat:hover,
+.sidebar.dark .newchat1:hover {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background-color: #3d3d41;
+}
+
+/* Add these new styles for smooth transitions */
+.sidebar-transition {
+  transition-property: transform, width;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}

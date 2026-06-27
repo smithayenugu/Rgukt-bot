@@ -1,0 +1,2120 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+import streamlit as st
+from langchain_groq import ChatGroq
+from langchain.tools import Tool
+from langchain.agents import initialize_agent, AgentType
+from bs4 import BeautifulSoup
+import requests
+from typing import Dict
+
+# Initialize LLM and embeddings
+groq_api_key = os.getenv("GROQ_API_KEY")
+llm = ChatGroq(groq_api_key=groq_api_key, model_name="Mixtral-8x7B-32768")
+
+from langchain.embeddings import HuggingFaceEmbeddings 
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+# Initialize Vector Store
+from langchain.vectorstores import Chroma
+db2 = Chroma(persist_directory="./rgukt2_db", embedding_function=embeddings)
+retriever = db2.as_retriever()
+
+def scrape_rgukt_sections() -> Dict[str, list]:
+    """Scrapes different sections of the RGUKT website and returns structured content"""
+    base_url = "https://www.rgukt.ac.in"
+    try:
+        response = requests.get(base_url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        content = {
+            'news': [],
+            'notices': [],
+            'academics': [],
+            'departments': [],
+            'facilities': []
+        }
+        
+        # Get latest news
+        news_updates = soup.find_all('div', class_='news-updates')
+        if news_updates:
+            content['news'] = [item.text.strip() for item in news_updates]
+            
+        # Get notices/circulars
+        notices = soup.find_all('div', class_='notices-circulars')
+        if notices:
+            content['notices'] = [item.text.strip() for item in notices]
+            
+        # Get academic information
+        academics = soup.find_all('div', class_='academics')
+        if academics:
+            content['academics'] = [item.text.strip() for item in academics]
+            
+        return content
+    except Exception as e:
+        return {"error": f"Failed to scrape website: {str(e)}"}
+
+def query_rgukt_website(query: str) -> str:
+    """Searches for information in the RGUKT website based on the query"""
+    try:
+        content = scrape_rgukt_sections()
+        if "error" in content:
+            return "Sorry, I couldn't access the website at the moment."
+        
+        query_lower = query.lower()
+        relevant_info = []
+        
+        categories = {
+            'academics': ['course', 'program', 'curriculum', 'academic', 'study'],
+            'admissions': ['admission', 'apply', 'entrance', 'application'],
+            'facilities': ['hostel', 'library', 'lab', 'facility', 'accommodation'],
+            'news': ['news', 'announcement', 'event', 'latest'],
+            'contact': ['contact', 'address', 'phone', 'email', 'location']
+        }
+        
+        matched_categories = []
+        for category, keywords in categories.items():
+            if any(keyword in query_lower for keyword in keywords):
+                matched_categories.append(category)
+        
+        if matched_categories:
+            for category in matched_categories:
+                if category in content and content[category]:
+                    relevant_info.extend(content[category])
+        
+        if relevant_info:
+            return "\n".join(relevant_info)
+        else:
+            return "I couldn't find specific information about that query on the RGUKT website."
+            
+    except Exception as e:
+        return f"Error accessing the website: {str(e)}"
+
+# Create the website tool
+rgukt_website_tool = Tool(
+    name="RGUKTWebsiteTool",
+    func=query_rgukt_website,
+    description="Searches the RGUKT official website for university-related information."
+)
+
+# Initialize the agent
+agent = initialize_agent(
+    tools=[rgukt_website_tool],
+    llm=llm,
+    agent_type=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+    verbose=True,
+    handle_parsing_errors=True,
+    max_iterations=2
+)
+
+# Create RAG chain
+from langchain.prompts import ChatPromptTemplate
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+
+# Modified system prompt to better handle context
+system_prompt = """You are a specialized assistant for RGUKT (Rajiv Gandhi University of Knowledge Technologies).
+Follow these strict guidelines:
+
+1. ONLY answer questions related to RGUKT university
+2. For greetings (hi, hello, hey), respond ONLY with: "Hello! How can I assist you with RGUKT university-related queries?"
+3. For non-university questions, respond ONLY with: "I'm sorry, I can only assist with RGUKT university-related queries."
+5 If the user say there name greet them by mentioning there name
+4. If user asks about their name or information they previously shared, reference it from the chat history
+5. Use this priority order for information:
+   - First check the chat history for context
+   - Then check the provided context
+   - If not found, use the RGUKT website tool
+   - If still not found, inform that the information is not available
+
+Previous Chat History:
+{chat_history}
+
+Current Context:
+{context}
+
+User: {input}
+Assistant:"""
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", system_prompt),
+    ("human", "{input}")
+])
+
+question_answering_chain = create_stuff_documents_chain(llm, prompt)
+rag_chain = create_retrieval_chain(retriever, question_answering_chain)
+
+# Initialize chat history and messages in session state if they don't exist
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
+if 'messages' not in st.session_state:
+    st.session_state.messages = []
+
+# Function to display chat history
+def display_chat_history():
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+# Display chat history at the start
+display_chat_history()
+
+# Add this before the if statement
+input_question = st.chat_input("Ask a question about RGUKT")
+
+if input_question:
+    # Add user message to chat history and messages
+    st.session_state.messages.append({"role": "user", "content": input_question})
+    st.session_state.chat_history.append(("human", input_question))
+    with st.chat_message("user"):
+        st.markdown(input_question)
+
+    # Format chat history for context
+    formatted_history = "\n".join([f"{'User' if role == 'human' else 'Assistant'}: {message}" 
+                                 for role, message in st.session_state.chat_history])
+    
+    # Check if this is a greeting
+    greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
+    if input_question.lower().strip() in greetings:
+        final_response = "Hello! How can I assist you with RGUKT university-related queries?"
+    else:
+        # First try context with chat history
+        context_response = rag_chain.invoke({
+            "input": input_question,
+            "chat_history": formatted_history
+        })
+        
+        # Rest of your existing logic for handling responses
+        if "I'm sorry" in context_response['answer'] or "cannot respond" in context_response['answer']:
+            try:
+                website_response = agent.invoke({
+                    "input": input_question,
+                    "chat_history": st.session_state.chat_history
+                })
+                final_response = website_response['output']
+            except Exception:
+                final_response = "I'm sorry, I can only assist with RGUKT university-related queries."
+        else:
+            final_response = context_response['answer']
+
+    # After getting the final_response, add assistant's response to both histories
+    with st.chat_message("assistant"):
+        st.markdown(final_response)
+    st.session_state.messages.append({"role": "assistant", "content": final_response})
+    st.session_state.chat_history.append(("assistant", final_response))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import os
+# import sqlite3
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template(
+#     """
+#     You are a highly knowledgeable assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies). 
+#     Answer the user's query based on the provided context and database information. Ensure your responses are:
+    
+#     1. Accurate, concise, and directly related to RGUKT.
+#     2. Based strictly on the provided context and database information. If neither contains the answer, politely inform the user.
+#     3. Formatted in HTML for better readability when displayed.
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     Database Information:
+#     <database_info>
+#     {database_info}
+#     </database_info>
+
+#     User's Question: {input}
+
+#     Your Response:
+#     """
+# )
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+#     loader = PyPDFDirectoryLoader("rgukt_datasets_21")
+#     docs = loader.load()  # Load documents
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# # SQLite database setup
+# DB_NAME = "rgukt2_db.sqlite"
+
+# def init_db():
+#     conn = sqlite3.connect(DB_NAME)
+#     cursor = conn.cursor()
+#     cursor.execute('''
+#     CREATE TABLE IF NOT EXISTS rgukt_info (
+#         id INTEGER PRIMARY KEY,
+#         category TEXT,
+#         key TEXT,
+#         value TEXT
+#     )
+#     ''')
+#     conn.commit()
+#     conn.close()
+
+# init_db()
+
+# def query_db(query):
+#     conn = sqlite3.connect(DB_NAME)
+#     cursor = conn.cursor()
+#     cursor.execute(query)
+#     results = cursor.fetchall()
+#     conn.close()
+#     return results
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+        
+#         # Query the SQLite database
+#         db_query = f"SELECT * FROM rgukt_info WHERE key LIKE '%{message.text}%' OR value LIKE '%{message.text}%'"
+#         db_results = query_db(db_query)
+#         db_info = "\n".join([f"{row[1]} - {row[2]}: {row[3]}" for row in db_results])
+        
+#         # Invoke the retrieval chain with both vector store and database information
+#         response = retrieval_chain.invoke({
+#             "input": message.text,
+#             "database_info": db_info
+#         })
+        
+#         end = time.time()
+        
+#         return {
+#             "response": response['answer'],
+#             "response_time": f"{end - start:.2f} seconds",
+#             "context": [
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response['context']
+#             ],
+#             "db_info": db_info,
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# import os
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+# import requests
+# from bs4 import BeautifulSoup
+# from langchain_core.documents import Document
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template("""
+#     You are a highly knowledgeable assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies). 
+#     Answer the user's query based on the provided context. Ensure your responses are:
+    
+#     1. Accurate, concise, and directly related to RGUKT.
+#     2. Based strictly on the provided context. If the context does not contain the answer, politely inform the user.
+#     3. Formatted in HTML for better readability when displayed.
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     User's Question: {input}
+
+#     Your Response:
+#     """
+# )
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# def scrape_all_datasets():
+#     datasets = {
+#         "about_rgukt": {
+#             "urls": [
+#                 'http://www.rgukt.ac.in/about-introduction.html',
+#                 'http://www.rgukt.ac.in/vision-mission.html',
+#                 'http://www.rgukt.ac.in/stu-campuslife.html',
+#                 'http://www.rgukt.ac.in/anti-ragging.html',
+#                 'https://www.rgukt.ac.in/about-introduction.html',
+#                 'https://www.rgukt.ac.in/vision-mission.html',
+#                 'https://www.rgukt.ac.in/vc.html',
+#                 'https://www.rgukt.ac.in/gc.html',
+#                 'https://www.rgukt.ac.in/administration-section.html',
+#                 'https://www.rgukt.ac.in/cd.html',
+#                 'https://www.rgukt.ac.in/academicprogrammes.html',
+#                 'https://www.rgukt.ac.in/curricula.html',
+#                 'https://www.rgukt.ac.in/academiccalender.html',
+#                 'https://www.rgukt.ac.in/departments.html',
+#                 'https://www.rgukt.ac.in/examination.html',
+#                 'https://www.rgukt.ac.in/index.html',
+#                 'https://www.rgukt.ac.in/cse.html',
+#                 'https://www.rgukt.ac.in/che.html',
+#                 'https://www.rgukt.ac.in/ce.html',
+#                 'https://www.rgukt.ac.in/ece.html',
+#                 'https://www.rgukt.ac.in/mme.html',
+#                 'https://www.rgukt.ac.in/me.html',
+#                 'https://www.rgukt.ac.in/hostels.html',
+#                 'https://www.rgukt.ac.in/library/',
+#                 'https://www.rgukt.ac.in/hospital.html',
+#                 'https://www.rgukt.ac.in/placement/',
+#                 'http://careers.rgukt.ac.in/',
+#                 'https://www.rgukt.ac.in/contactus.html',
+#                 'http://www.rgukt.ac.in/cse-faculty.html'
+#             ],
+#             "classes": ["page-row"]
+#         }
+#     }
+    
+#     scraped_data = []
+    
+#     for dataset, info in datasets.items():
+#         for url in info["urls"]:
+#             try:
+#                 response = requests.get(url)
+#                 response.raise_for_status()
+#                 soup = BeautifulSoup(response.content, 'html.parser')
+                
+#                 for class_name in info["classes"]:
+#                     elements = soup.find_all(class_=class_name)
+#                     for element in elements:
+#                         scraped_data.append(Document(
+#                             page_content=element.get_text(strip=True),
+#                             metadata={"source": url}
+#                         ))
+                
+#                 print(f"Successfully scraped {url}")
+#             except Exception as e:
+#                 print(f"Error scraping {url}: {str(e)}")
+    
+#     return scraped_data
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+    
+#     # Load PDF documents
+#     loader = PyPDFDirectoryLoader("rgukt_datasets")
+#     pdf_docs = loader.load()
+    
+#     # Scrape web data
+#     web_docs = scrape_all_datasets()
+    
+#     # Combine PDF and web documents
+#     all_docs = pdf_docs + web_docs
+    
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(all_docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+#         response = retrieval_chain.invoke({"input": message.text})
+#         end = time.time()
+        
+#         return {
+#             "response": response['answer'],
+#             "response_time": f"{end - start:.2f} seconds",
+#             "context": [
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response['context']
+#             ],
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "_main_":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
+# import os
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+# import requests
+# from bs4 import BeautifulSoup
+# from langchain_core.documents import Document
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template("""
+#     You are a highly knowledgeable assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies). 
+#     Answer the user's query based on the provided context. If the context lacks specific information, use your expertise to infer a reasonable and helpful answer. Ensure your responses are:
+
+#     1. Accurate, concise, and directly related to RGUKT.
+#     2. Based on the context or your general expertise, with disclaimers where necessary.
+#     3. Presented in HTML for better readability.
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     User's Question: {input}
+
+#     Your Response:
+#     """
+# )
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# def scrape_all_datasets():
+#     datasets = {
+#         "about_rgukt": {
+#             "urls": [
+#                 'http://www.rgukt.ac.in/about-introduction.html',
+#                 'http://www.rgukt.ac.in/vision-mission.html',
+#                 'http://www.rgukt.ac.in/stu-campuslife.html',
+#                 'http://www.rgukt.ac.in/anti-ragging.html',
+#                 'https://www.rgukt.ac.in/about-introduction.html',
+#                 'https://www.rgukt.ac.in/vision-mission.html',
+#                 'https://www.rgukt.ac.in/vc.html',
+#                 'https://www.rgukt.ac.in/gc.html',
+#                 'https://www.rgukt.ac.in/administration-section.html',
+#                 'https://www.rgukt.ac.in/cd.html',
+#                 'https://www.rgukt.ac.in/academicprogrammes.html',
+#                 'https://www.rgukt.ac.in/curricula.html',
+#                 'https://www.rgukt.ac.in/academiccalender.html',
+#                 'https://www.rgukt.ac.in/departments.html',
+#                 'https://www.rgukt.ac.in/examination.html',
+#                 'https://www.rgukt.ac.in/index.html',
+#                 'https://www.rgukt.ac.in/cse.html',
+#                 'https://www.rgukt.ac.in/che.html',
+#                 'https://www.rgukt.ac.in/ce.html',
+#                 'https://www.rgukt.ac.in/ece.html',
+#                 'https://www.rgukt.ac.in/mme.html',
+#                 'https://www.rgukt.ac.in/me.html',
+#                 'https://www.rgukt.ac.in/hostels.html',
+#                 'https://www.rgukt.ac.in/library/',
+#                 'https://www.rgukt.ac.in/hospital.html',
+#                 'https://www.rgukt.ac.in/placement/',
+#                 'http://careers.rgukt.ac.in/',
+#                 'https://www.rgukt.ac.in/contactus.html',
+#                 'http://www.rgukt.ac.in/cse-faculty.html'
+#             ],
+#             "classes": ["page-row"]
+#         }
+#     }
+    
+#     scraped_data = []
+    
+#     for dataset, info in datasets.items():
+#         for url in info["urls"]:
+#             try:
+#                 response = requests.get(url)
+#                 response.raise_for_status()
+#                 soup = BeautifulSoup(response.content, 'html.parser')
+                
+#                 for class_name in info["classes"]:
+#                     elements = soup.find_all(class_=class_name)
+#                     for element in elements:
+#                         scraped_data.append(Document(
+#                             page_content=element.get_text(strip=True),
+#                             metadata={"source": url}
+#                         ))
+                
+#                 print(f"Successfully scraped {url}")
+#             except Exception as e:
+#                 print(f"Error scraping {url}: {str(e)}")
+    
+#     return scraped_data
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+    
+#     # Load PDF documents
+#     loader = PyPDFDirectoryLoader("rgukt_datasets")
+#     pdf_docs = loader.load()
+    
+#     # Scrape web data
+#     web_docs = scrape_all_datasets()
+    
+#     # Combine PDF and web documents
+#     all_docs = pdf_docs + web_docs
+    
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(all_docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+#         response = retrieval_chain.invoke({"input": message.text})
+        
+#         # Check if the response has sufficient context
+#         if 'answer' in response and response['answer'].strip():
+#             answer = response['answer']
+#         else:
+#             answer = (
+#                 f"I'm here to assist you with queries about RGUKT. "
+#                 f"While the exact details are not in my current knowledge base, "
+#                 f"I recommend visiting [RGUKT's official website](http://www.rgukt.ac.in) for accurate and detailed information. "
+#                 f"Feel free to ask more specific questions!"
+#             )
+        
+#         end = time.time()
+#         return {
+#             "response": answer,
+#             "response_time": f"{end - start:.2f} seconds",
+#             "context": [
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response.get('context', [])
+#             ],
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
+
+
+
+
+
+
+
+
+ from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# from typing import Optional, Dict, List
+# from datetime import datetime
+# import os
+# from dotenv import load_dotenv
+# from langchain_groq import ChatGroq
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain_chroma import Chroma
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader
+# from langchain.memory import ConversationBufferMemory
+# from langchain.agents import create_structured_chat_agent, AgentExecutor
+# from langchain_core.tools import Tool
+# from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+# from langchain.agents.format_scratchpad import format_to_openai_function_messages
+# from langchain.agents.output_parsers import OpenAIFunctionsAgentOutputParser
+# from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, FunctionMessage
+# from langchain.tools.render import format_tool_to_openai_function
+
+# # Define Pydantic models for request/response
+# class ChatMessage(BaseModel):
+#     text: str
+#     chat_history: List[Dict[str, str]] = []
+
+# class ChatResponse(BaseModel):
+#     response: str
+#     timestamp: str
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Load environment variables
+# load_dotenv()
+
+# # Add this after load_dotenv()
+# if not os.getenv("GROQ_API_KEY"):
+#     raise ValueError("GROQ_API_KEY environment variable is not set")
+
+# def scrape_rgukt_sections() -> Dict[str, list]:
+#     """Scrapes different sections of the RGUKT website and returns structured content."""
+#     urls = {
+#         'about': [
+#             "http://www.rgukt.ac.in/about-introduction.html",
+#             "https://www.rgukt.ac.in/vision-mission.html",
+#             "https://www.rgukt.ac.in/vc.html",
+#             "https://www.rgukt.ac.in/gc.html"
+#         ],
+#         'academics': [
+#             "https://www.rgukt.ac.in/academicprogrammes.html",
+#             "https://www.rgukt.ac.in/curricula.html",
+#             "https://www.rgukt.ac.in/academiccalender.html",
+#             "https://www.rgukt.ac.in/examination.html"
+#         ],
+#         'departments': [
+#             "https://www.rgukt.ac.in/departments.html",
+#             "https://www.rgukt.ac.in/cse.html",
+#             "https://www.rgukt.ac.in/che.html",
+#             "https://www.rgukt.ac.in/ce.html",
+#             "https://www.rgukt.ac.in/ece.html",
+#             "https://www.rgukt.ac.in/mme.html",
+#             "https://www.rgukt.ac.in/me.html"
+#         ]
+#     }
+#     content = {category: [] for category in urls.keys()}
+    
+#     for category, category_urls in urls.items():
+#         for url in category_urls:
+#             try:
+#                 response = requests.get(url, timeout=5)
+#                 soup = BeautifulSoup(response.content, 'html.parser')
+#                 main_content = soup.find('div', class_='content') or soup.find('main') or soup.find('article')
+#                 if main_content:
+#                     content[category].append({
+#                         'url': url,
+#                         'title': soup.title.string if soup.title else url,
+#                         'content': main_content.get_text(strip=True),
+#                     })
+#             except Exception as e:
+#                 print(f"Error scraping {url}: {str(e)}")
+#     return content
+
+# def query_rgukt_website(query: str) -> str:
+#     """Searches for information in the RGUKT website based on the query."""
+#     try:
+#         content = scrape_rgukt_sections()
+#         relevant_info = []
+#         for category, items in content.items():
+#             for item in items:
+#                 if query.lower() in item['content'].lower():
+#                     relevant_info.append(item['content'])
+#         return "\n".join(relevant_info) if relevant_info else "No information found."
+#     except Exception as e:
+#         return f"Error accessing the website: {str(e)}"
+
+# # Initialize Chat Model
+# chat_model = ChatGroq(
+#     api_key=os.getenv("GROQ_API_KEY"),
+#     model_name="Llama3-8b-8192"
+# )
+
+# # Initialize Embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+# # Initialize Vector Stores
+# try:
+#     # Web content vector store
+#     web_vectorstore = Chroma(
+#         persist_directory="./rgukt2_db", 
+#         embedding_function=embeddings,
+#         collection_name="web_data"
+#     )
+#     web_retriever = web_vectorstore.as_retriever(
+#         search_kwargs={"k": 3}
+#     )
+# except Exception as e:
+#     print(f"Error initializing web vector store: {e}")
+#     web_retriever = None
+
+# try:
+#     # PDF vector store
+#     pdf_vectorstore = Chroma(
+#         persist_directory="./pdf_vectorstore",
+#         embedding_function=embeddings,
+#         collection_name="pdf_data"
+#     )
+#     pdf_retriever = pdf_vectorstore.as_retriever(
+#         search_kwargs={"k": 3}
+#     )
+# except Exception as e:
+#     print(f"Error initializing PDF vector store: {e}")
+#     pdf_retriever = None
+
+# # Create Tools
+# def pdf_tool_func(query: str) -> str:
+#     try:
+#         if pdf_retriever:
+#             docs = pdf_retriever.get_relevant_documents(query)
+#             return "\n".join([doc.page_content for doc in docs]) if docs else "No relevant information found in PDFs."
+#         return "PDF retriever not available"
+#     except Exception as e:
+#         return f"Error searching PDFs: {str(e)}"
+
+# def web_db_tool_func(query: str) -> str:
+#     try:
+#         if web_retriever:
+#             docs = web_retriever.get_relevant_documents(query)
+#             return "\n".join([doc.page_content for doc in docs]) if docs else "No relevant information found in web database."
+#         return "Web vector store not available"
+#     except Exception as e:
+#         return f"Error searching web database: {str(e)}"
+
+# tools = [
+#     Tool(
+#         name="PDFDataTool",
+#         func=pdf_tool_func,
+#         description="Searches through RGUKT PDF documents for detailed information.",
+#         return_direct=True,
+#         coroutine=None
+#     ),
+#     Tool(
+#         name="WebVectorDBTool",
+#         func=web_db_tool_func,
+#         description="Searches through the web content vector database for RGUKT information.",
+#         return_direct=True,
+#         coroutine=None
+#     ),
+#     Tool(
+#         name="WebsiteTool",
+#         func=query_rgukt_website,
+#         description="Scrapes the live RGUKT website for current information.",
+#         return_direct=True,
+#         coroutine=None
+#     )
+# ]
+
+# # Format tools for OpenAI functions
+# tool_functions = [format_tool_to_openai_function(t) for t in tools]
+
+# # Initialize Memory
+# memory = ConversationBufferMemory(
+#     memory_key="chat_history",
+#     return_messages=True,
+#     output_key="output",
+#     input_key="input"
+# )
+
+# # First define the tools and tool descriptions
+# tool_names = [tool.name for tool in tools]
+# tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in tools])
+
+# # Update the prompt template with both tools and tool_names
+# prompt = ChatPromptTemplate.from_messages([
+#     ("system", """You are a helpful AI assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies).
+    
+#     Available tools: {tool_names}
+    
+#     Tool descriptions:
+#     {tools}
+    
+#     Instructions:
+#     1. Use the tools to gather accurate information
+#     2. Provide clear and concise answers
+#     3. If you don't find relevant information, say so
+#     4. Always maintain a helpful and professional tone"""),
+#     MessagesPlaceholder(variable_name="chat_history", optional=True),
+#     ("human", "{input}"),
+#     MessagesPlaceholder(variable_name="agent_scratchpad"),
+# ])
+
+# # Function to format intermediate steps
+# def format_intermediate_steps(intermediate_steps):
+#     messages = []
+#     for step in intermediate_steps:
+#         action, observation = step
+#         messages.append(
+#             FunctionMessage(
+#                 content=str(observation),
+#                 name=action.tool
+#             )
+#         )
+#     return messages
+
+# # Create the agent with proper formatting
+# agent = create_structured_chat_agent(
+#     llm=chat_model,
+#     tools=tools,
+#     prompt=prompt.partial(
+#         tools=tool_descriptions,
+#         tool_names=", ".join(tool_names)
+#     )
+# )
+
+# # Create the agent executor
+# agent_executor = AgentExecutor(
+#     agent=agent,
+#     tools=tools,
+#     memory=memory,
+#     verbose=True,
+#     handle_parsing_errors=True,
+#     max_iterations=3,
+#     return_intermediate_steps=True,
+#     early_stopping_method="force"
+# )
+
+# # Then define your chat endpoint
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         # Convert chat history to message objects
+#         formatted_history = []
+#         for msg in message.chat_history:
+#             if msg["role"] == "user":
+#                 formatted_history.append(HumanMessage(content=msg["content"]))
+#             elif msg["role"] == "assistant":
+#                 formatted_history.append(AIMessage(content=msg["content"]))
+
+#         # Initialize intermediate steps
+#         intermediate_steps = []
+
+#         # Prepare the input with proper message formatting
+#         input_dict = {
+#             "input": message.text,
+#             "chat_history": formatted_history,
+#             "agent_scratchpad": format_intermediate_steps(intermediate_steps)
+#         }
+
+#         try:
+#             # Execute the agent
+#             result = agent_executor.invoke(input_dict)
+            
+#             # Extract the response
+#             if isinstance(result, dict):
+#                 response_text = result.get('output', '')
+#                 if not response_text:
+#                     response_text = result.get('final_answer', str(result))
+#             else:
+#                 response_text = str(result)
+
+#             # Ensure valid response
+#             if not response_text or response_text.isspace():
+#                 response_text = "I apologize, but I couldn't generate a proper response."
+
+#             return ChatResponse(
+#                 response=response_text,
+#                 timestamp=datetime.now().isoformat()
+#             )
+
+#         except Exception as chain_error:
+#             print(f"Chain execution error: {str(chain_error)}")
+#             return ChatResponse(
+#                 response="I apologize, but I encountered an error while processing your request. Please try again.",
+#                 timestamp=datetime.now().isoformat()
+#             )
+
+#     except Exception as e:
+#         print(f"General error in chat endpoint: {str(e)}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"An error occurred while processing your request: {str(e)}"
+#         )
+
+# # Root endpoint remains the same
+# @app.get("/")
+# async def read_root():
+#     return {"message": "API is running"}
+
+# # if __name__ == "__main__":
+# #     import uvicorn
+# #     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from pydantic import BaseModel
+# from typing import Optional, Dict
+# from datetime import datetime
+# import os
+# from dotenv import load_dotenv
+# from langchain_groq import ChatGroq
+# from langchain.schema import HumanMessage
+# from langchain.embeddings import HuggingFaceEmbeddings
+# # from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain.vectorstores import Chroma
+# # from langchain_community.vectorstores import Chroma
+# from langchain.chains import create_retrieval_chain
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain.prompts import ChatPromptTemplate
+# from bs4 import BeautifulSoup
+# import requests
+# from langchain.tools import Tool
+# from langchain.agents import initialize_agent, AgentType
+
+# # Load environment variables
+# load_dotenv()
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Initialize Groq Chat and embeddings
+# chat_model = ChatGroq(
+#     api_key=os.getenv("GROQ_API_KEY"),
+#     model_name="mixtral-8x7b-32768"
+# )
+
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
+# # Initialize Vector Store
+# db2 = Chroma(persist_directory="./rgukt2_db", embedding_function=embeddings)
+# retriever = db2.as_retriever()
+
+# # Create RAG chain
+# system_prompt = """You are a specialized assistant for RGUKT (Rajiv Gandhi University of Knowledge Technologies).
+# Follow these strict guidelines:
+
+# 1. ONLY answer questions related to RGUKT university
+# 2. For greetings (hi, hello, hey), respond ONLY with: "Hello! How can I assist you with RGUKT university-related queries?"
+# 3. For non-university questions, respond ONLY with: "I'm sorry, I can only assist with RGUKT university-related queries."
+# 4. If the user says their name greet them by mentioning their name
+# 5. If user asks about their name or information they previously shared, reference it from the chat history
+# 6. Format your responses in HTML for proper display
+# 7. Use this priority order for information:
+#    - First check the chat history for context
+#    - Then check the provided context
+#    - If not found, use the RGUKT website information
+#    - If still not found, inform that the information is not available
+
+# Previous Chat History:
+# {chat_history}
+
+# Current Context:
+# {context}
+
+# User: {input}
+# Assistant:"""
+
+# prompt = ChatPromptTemplate.from_messages([
+#     ("system", system_prompt),
+#     ("human", "{input}")
+# ])
+
+# question_answering_chain = create_stuff_documents_chain(chat_model, prompt)
+# rag_chain = create_retrieval_chain(retriever, question_answering_chain)
+
+# def scrape_rgukt_sections() -> Dict[str, list]:
+#     """Scrapes different sections of the RGUKT website and returns structured content"""
+#     base_url = "https://www.rgukt.ac.in"
+#     try:
+#         response = requests.get(base_url)
+#         soup = BeautifulSoup(response.content, 'html.parser')
+        
+#         content = {
+#             'news': [],
+#             'notices': [],
+#             'academics': [],
+#             'departments': [],
+#             'facilities': []
+#         }
+        
+#         # Get latest news
+#         news_updates = soup.find_all('div', class_='news-updates')
+#         if news_updates:
+#             content['news'] = [item.text.strip() for item in news_updates]
+            
+#         # Get notices/circulars
+#         notices = soup.find_all('div', class_='notices-circulars')
+#         if notices:
+#             content['notices'] = [item.text.strip() for item in notices]
+            
+#         # Get academic information
+#         academics = soup.find_all('div', class_='academics')
+#         if academics:
+#             content['academics'] = [item.text.strip() for item in academics]
+            
+#         return content
+#     except Exception as e:
+#         return {"error": f"Failed to scrape website: {str(e)}"}
+
+# def query_rgukt_website(query: str) -> str:
+#     """Searches for information in the RGUKT website based on the query"""
+#     try:
+#         content = scrape_rgukt_sections()
+#         if "error" in content:
+#             return "Sorry, I couldn't access the website at the moment."
+        
+#         query_lower = query.lower()
+#         relevant_info = []
+        
+#         categories = {
+#             'academics': ['course', 'program', 'curriculum', 'academic', 'study'],
+#             'admissions': ['admission', 'apply', 'entrance', 'application'],
+#             'facilities': ['hostel', 'library', 'lab', 'facility', 'accommodation'],
+#             'news': ['news', 'announcement', 'event', 'latest'],
+#             'contact': ['contact', 'address', 'phone', 'email', 'location']
+#         }
+        
+#         matched_categories = []
+#         for category, keywords in categories.items():
+#             if any(keyword in query_lower for keyword in keywords):
+#                 matched_categories.append(category)
+        
+#         if matched_categories:
+#             for category in matched_categories:
+#                 if category in content and content[category]:
+#                     relevant_info.extend(content[category])
+        
+#         if relevant_info:
+#             return "\n".join(relevant_info)
+#         else:
+#             return "I couldn't find specific information about that query on the RGUKT website."
+            
+#     except Exception as e:
+#         return f"Error accessing the website: {str(e)}"
+
+# # Create the website tool
+# rgukt_website_tool = Tool(
+#     name="RGUKTWebsiteTool",
+#     func=query_rgukt_website,
+#     description="Searches the RGUKT official website for university-related information."
+# )
+
+# # Initialize the agent
+# agent = initialize_agent(
+#     tools=[rgukt_website_tool],
+#     llm=chat_model,
+#     agent_type=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
+#     verbose=True,
+#     handle_parsing_errors=True,
+#     max_iterations=2
+# )
+
+# class ChatMessage(BaseModel):
+#     text: str
+#     chat_history: list = []
+
+# class ChatResponse(BaseModel):
+#     response: str
+#     timestamp: str
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         # Check if message is a greeting
+#         greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
+#         if message.text.lower().strip() in greetings:
+#             response = "<p>Hello! How can I assist you with RGUKT university-related queries?</p>"
+#         else:
+#             # Format chat history
+#             formatted_history = "\n".join([
+#                 f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+#                 for msg in message.chat_history
+#             ])
+
+#             # Try RAG chain first
+#             context_response = rag_chain.invoke({
+#                 "input": message.text,
+#                 "chat_history": formatted_history
+#             })
+
+#             if "I'm sorry" in context_response['answer'] or "cannot respond" in context_response['answer']:
+#                 try:
+#                     # Use the agent with website tool as fallback
+#                     website_response = agent.invoke({
+#                         "input": message.text,
+#                         "chat_history": message.chat_history
+#                     })
+#                     response = website_response['output']
+#                 except Exception:
+#                     response = "<p>I'm sorry, I can only assist with RGUKT university-related queries.</p>"
+#             else:
+#                 response = context_response['answer']
+
+#         # Format response in HTML
+#         if not response.startswith('<'):
+#             response = f"<p>{response}</p>"
+#         formatted_response = f"<div class='ai-response'>{response}</div>"
+
+#         return ChatResponse(
+#             response=formatted_response,
+#             timestamp=datetime.now().isoformat()
+#         )
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# @app.get("/")
+# async def read_root():
+#     return {"message": "API is running"}
+
+
+# import os
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template(
+#     """
+#     You are a highly knowledgeable assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies). 
+#     Answer the user's query based on the provided context. Ensure your responses are:
+    
+#     1. Accurate, concise, and directly related to RGUKT.
+#     2. Based strictly on the provided context. If the context does not contain the answer, politely inform the user.
+#     3. Formatted in HTML for better readability when displayed.
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     User's Question: {input}
+
+#     Your Response:
+#     """
+# )
+
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+#     loader = PyPDFDirectoryLoader("rgukt_datasets")
+#     docs = loader.load()  # Load documents
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+#         response = retrieval_chain.invoke({"input": message.text})
+#         end = time.time()
+        
+#         return {
+#             "response": response['answer'],
+#             "response_time": f"{end - start:.2f} seconds",
+#             "context": [
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response['context']
+#             ],
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "_main_":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+# import os
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+# import requests
+# from bs4 import BeautifulSoup
+# from langchain_core.documents import Document
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template("""
+#     You are a specialized assistant for RGUKT (Rajiv Gandhi University of Knowledge Technologies).
+#     Follow these strict guidelines:
+
+#     1. ONLY answer questions related to RGUKT university
+#     2. For greetings (hi, hello, hey), respond ONLY with: "Hello! How can I assist you with RGUKT university-related queries?"
+#     3. For non-university questions, respond ONLY with: "I'm sorry, I can only assist with RGUKT university-related queries."
+#     4. Format your responses in HTML for proper display
+#     5. Use this priority order for information:
+#        - Check the provided context
+#        - If not found, use the RGUKT website information
+#        - If still not found, inform that the information is not available
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     User Question: {input}
+
+#     Assistant Response:
+# """)
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# def scrape_all_datasets():
+#     datasets = {
+#         "about_rgukt": {
+#             "urls": [
+#                 'http://www.rgukt.ac.in/about-introduction.html',
+#                 'http://www.rgukt.ac.in/vision-mission.html',
+#                 'http://www.rgukt.ac.in/stu-campuslife.html',
+#                 'http://www.rgukt.ac.in/anti-ragging.html',
+#                 'https://www.rgukt.ac.in/about-introduction.html',
+#                 'https://www.rgukt.ac.in/vision-mission.html',
+#                 'https://www.rgukt.ac.in/vc.html',
+#                 'https://www.rgukt.ac.in/gc.html',
+#                 'https://www.rgukt.ac.in/administration-section.html',
+#                 'https://www.rgukt.ac.in/cd.html',
+#                 'https://www.rgukt.ac.in/academicprogrammes.html',
+#                 'https://www.rgukt.ac.in/curricula.html',
+#                 'https://www.rgukt.ac.in/academiccalender.html',
+#                 'https://www.rgukt.ac.in/departments.html',
+#                 'https://www.rgukt.ac.in/examination.html',
+#                 'https://www.rgukt.ac.in/index.html',
+#                 'https://www.rgukt.ac.in/cse.html',
+#                 'https://www.rgukt.ac.in/che.html',
+#                 'https://www.rgukt.ac.in/ce.html',
+#                 'https://www.rgukt.ac.in/ece.html',
+#                 'https://www.rgukt.ac.in/mme.html',
+#                 'https://www.rgukt.ac.in/me.html',
+#                 'https://www.rgukt.ac.in/hostels.html',
+#                 'https://www.rgukt.ac.in/library/',
+#                 'https://www.rgukt.ac.in/hospital.html',
+#                 'https://www.rgukt.ac.in/placement/',
+#                 'http://careers.rgukt.ac.in/',
+#                 'https://www.rgukt.ac.in/contactus.html',
+#                 'http://www.rgukt.ac.in/cse-faculty.html'
+#             ],
+#             "classes": ["page-row"]
+#         }
+#     }
+    
+#     scraped_data = []
+    
+#     for dataset, info in datasets.items():
+#         for url in info["urls"]:
+#             try:
+#                 response = requests.get(url)
+#                 response.raise_for_status()
+#                 soup = BeautifulSoup(response.content, 'html.parser')
+                
+#                 for class_name in info["classes"]:
+#                     elements = soup.find_all(class_=class_name)
+#                     for element in elements:
+#                         scraped_data.append(Document(
+#                             page_content=element.get_text(strip=True),
+#                             metadata={"source": url}
+#                         ))
+                
+#                 print(f"Successfully scraped {url}")
+#             except Exception as e:
+#                 print(f"Error scraping {url}: {str(e)}")
+    
+#     return scraped_data
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+    
+#     # Load PDF documents
+#     loader = PyPDFDirectoryLoader("rgukt_datasets")
+#     pdf_docs = loader.load()
+    
+#     # Scrape web data
+#     web_docs = scrape_all_datasets()
+    
+#     # Combine PDF and web documents
+#     all_docs = pdf_docs + web_docs
+    
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(all_docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# class ChatResponse(BaseModel):
+#     response: str
+#     response_time: str
+#     context: List[Dict[str, str]]
+#     timestamp: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+        
+#         # Check for greetings
+#         greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening"]
+#         if message.text.lower().strip() in greetings:
+#             response_text = "<p>Hello! How can I assist you with RGUKT university-related queries?</p>"
+#             end = time.time()
+            
+#             return ChatResponse(
+#                 response=response_text,
+#                 response_time=f"{end - start:.2f} seconds",
+#                 context=[],
+#                 timestamp=datetime.now().isoformat()
+#             )
+
+#         # Get response from chain for non-greeting messages
+#         response = retrieval_chain.invoke({
+#             "input": message.text
+#         })
+#         end = time.time()
+        
+#         return ChatResponse(
+#             response=response['answer'],
+#             response_time=f"{end - start:.2f} seconds",
+#             context=[
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response['context']
+#             ],
+#             timestamp=datetime.now().isoformat()
+#         )
+#     except Exception as e:
+#         print(f"Error in chat endpoint: {str(e)}")
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "_main_":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+# import os
+# from dotenv import load_dotenv
+# from fastapi import FastAPI, HTTPException
+# from fastapi.middleware.cors import CORSMiddleware
+# from fastapi.responses import HTMLResponse
+# from pydantic import BaseModel
+# from typing import List, Dict
+# from datetime import datetime
+# from langchain_community.document_loaders import PyPDFDirectoryLoader
+# from langchain.text_splitter import RecursiveCharacterTextSplitter
+# from langchain_huggingface import HuggingFaceEmbeddings
+# from langchain_community.vectorstores import FAISS
+# from langchain_groq import ChatGroq
+# from langchain.chains.combine_documents import create_stuff_documents_chain
+# from langchain_core.prompts import ChatPromptTemplate
+# from langchain.chains import create_retrieval_chain
+# import time
+# import pickle
+# import warnings
+# from transformers import logging as transformers_logging
+# import requests
+# from bs4 import BeautifulSoup
+# from langchain_core.documents import Document
+
+# # Suppress warnings
+# warnings.filterwarnings("ignore")
+# transformers_logging.set_verbosity_error()
+
+# # Load environment variables
+# load_dotenv()
+
+# # Load API Keys
+# groq_api_key = os.getenv("GROQ_API_KEY")
+# hf_token = os.getenv("HF_TOKEN")
+
+# if not groq_api_key or not hf_token:
+#     raise ValueError("GROQ_API_KEY or HF_TOKEN not found. Please set them in the .env file.")
+
+# # Initialize FastAPI app
+# app = FastAPI()
+
+# # Configure CORS
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["http://localhost:5173"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # Set up LLM and embeddings
+# embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+# llm = ChatGroq(groq_api_key=groq_api_key, model_name="Llama3-8b-8192")
+
+# prompt = ChatPromptTemplate.from_template("""
+#     You are a highly knowledgeable assistant specializing in RGUKT (Rajiv Gandhi University of Knowledge Technologies). 
+#     Answer the user's query based on the provided context. If the context lacks specific information, use your expertise to infer a reasonable and helpful answer. Ensure your responses are:
+
+#     1. Accurate, concise, and directly related to RGUKT.
+#     2. Based on the context or your general expertise, with disclaimers where necessary.
+#     3. Presented in HTML for better readability.
+
+#     Context:
+#     <context>
+#     {context}
+#     </context>
+
+#     User's Question: {input}
+
+#     Your Response:
+#     """
+# )
+
+# # File paths for FAISS index and metadata
+# INDEX_FILE = "faiss_index.faiss"
+# METADATA_FILE = "faiss_metadata.pkl"
+
+# def scrape_all_datasets():
+#     datasets = {
+#         "about_rgukt": {
+#             "urls": [
+#                 'http://www.rgukt.ac.in/about-introduction.html',
+#                 'http://www.rgukt.ac.in/vision-mission.html',
+#                 'http://www.rgukt.ac.in/stu-campuslife.html',
+#                 'http://www.rgukt.ac.in/anti-ragging.html',
+#                 'https://www.rgukt.ac.in/about-introduction.html',
+#                 'https://www.rgukt.ac.in/vision-mission.html',
+#                 'https://www.rgukt.ac.in/vc.html',
+#                 'https://www.rgukt.ac.in/gc.html',
+#                 'https://www.rgukt.ac.in/administration-section.html',
+#                 'https://www.rgukt.ac.in/cd.html',
+#                 'https://www.rgukt.ac.in/academicprogrammes.html',
+#                 'https://www.rgukt.ac.in/curricula.html',
+#                 'https://www.rgukt.ac.in/academiccalender.html',
+#                 'https://www.rgukt.ac.in/departments.html',
+#                 'https://www.rgukt.ac.in/examination.html',
+#                 'https://www.rgukt.ac.in/index.html',
+#                 'https://www.rgukt.ac.in/cse.html',
+#                 'https://www.rgukt.ac.in/che.html',
+#                 'https://www.rgukt.ac.in/ce.html',
+#                 'https://www.rgukt.ac.in/ece.html',
+#                 'https://www.rgukt.ac.in/mme.html',
+#                 'https://www.rgukt.ac.in/me.html',
+#                 'https://www.rgukt.ac.in/hostels.html',
+#                 'https://www.rgukt.ac.in/library/',
+#                 'https://www.rgukt.ac.in/hospital.html',
+#                 'https://www.rgukt.ac.in/placement/',
+#                 'http://careers.rgukt.ac.in/',
+#                 'https://www.rgukt.ac.in/contactus.html',
+#                 'http://www.rgukt.ac.in/cse-faculty.html'
+#             ],
+#             "classes": ["page-row"]
+#         }
+#     }
+    
+#     scraped_data = []
+    
+#     for dataset, info in datasets.items():
+#         for url in info["urls"]:
+#             try:
+#                 response = requests.get(url)
+#                 response.raise_for_status()
+#                 soup = BeautifulSoup(response.content, 'html.parser')
+                
+#                 for class_name in info["classes"]:
+#                     elements = soup.find_all(class_=class_name)
+#                     for element in elements:
+#                         scraped_data.append(Document(
+#                             page_content=element.get_text(strip=True),
+#                             metadata={"source": url}
+#                         ))
+                
+#                 print(f"Successfully scraped {url}")
+#             except Exception as e:
+#                 print(f"Error scraping {url}: {str(e)}")
+    
+#     return scraped_data
+
+# # Function to create and save the vector database
+# def create_and_save_vector_database():
+#     print("Training model and creating vector database...")
+    
+#     # Load PDF documents
+#     loader = PyPDFDirectoryLoader("rgukt_datasets")
+#     pdf_docs = loader.load()
+    
+#     # Scrape web data
+#     web_docs = scrape_all_datasets()
+    
+#     # Combine PDF and web documents
+#     all_docs = pdf_docs + web_docs
+    
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#     final_documents = text_splitter.split_documents(all_docs)
+    
+#     # Create FAISS vector database
+#     vector_store = FAISS.from_documents(final_documents, embeddings)
+    
+#     # Save the FAISS index and metadata
+#     vector_store.save_local(INDEX_FILE)
+#     with open(METADATA_FILE, "wb") as f:
+#         pickle.dump(final_documents, f)
+    
+#     print("Vector database created and saved to disk.")
+#     return vector_store, final_documents
+
+# # Function to load the vector database from disk
+# def load_vector_database():
+#     print("Loading vector database from disk...")
+#     vector_store = FAISS.load_local(INDEX_FILE, embeddings, allow_dangerous_deserialization=True)
+#     with open(METADATA_FILE, "rb") as f:
+#         final_documents = pickle.load(f)
+#     return vector_store, final_documents
+
+# # Initialize vector database
+# if os.path.exists(INDEX_FILE) and os.path.exists(METADATA_FILE):
+#     vector_store, final_documents = load_vector_database()
+# else:
+#     vector_store, final_documents = create_and_save_vector_database()
+
+# # Create the document chain and retriever
+# document_chain = create_stuff_documents_chain(llm, prompt)
+# retriever = vector_store.as_retriever()
+# retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+# class ChatMessage(BaseModel):
+#     text: str
+
+# @app.get("/", response_class=HTMLResponse)
+# async def root():
+#     return """
+#     <html>
+#         <head>
+#             <title>RGUKT ChatBot API</title>
+#         </head>
+#         <body>
+#             <h1>Welcome to the RGUKT ChatBot API</h1>
+#             <p>Use the /api/chat endpoint to interact with the chatbot.</p>
+#         </body>
+#     </html>
+#     """
+
+# @app.post("/api/chat")
+# async def chat(message: ChatMessage):
+#     try:
+#         start = time.time()
+#         response = retrieval_chain.invoke({"input": message.text})
+        
+#         # Check if the response has sufficient context
+#         if 'answer' in response and response['answer'].strip():
+#             answer = response['answer']
+#         else:
+#             answer = (
+#                 f"I'm here to assist you with queries about RGUKT. "
+#                 f"While the exact details are not in my current knowledge base, "
+#                 f"I recommend visiting [RGUKT's official website](http://www.rgukt.ac.in) for accurate and detailed information. "
+#                 f"Feel free to ask more specific questions!"
+#             )
+        
+#         end = time.time()
+#         return {
+#             "response": answer,
+#             "response_time": f"{end - start:.2f} seconds",
+#             "context": [
+#                 {"content": doc.page_content, "source": doc.metadata.get('source', 'Unknown')}
+#                 for doc in response.get('context', [])
+#             ],
+#             "timestamp": datetime.now().isoformat()
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+

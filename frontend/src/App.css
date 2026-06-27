@@ -1,0 +1,25 @@
+*{
+  margin: 0px;
+  padding: 0px;
+  box-sizing: border-box;
+}
+body{
+  height: 100vh;
+  width: 100%;
+  font-family: 'outfit';
+  /* border: 2px solid red; */
+}
+.chatbox{
+  width: 100vw;
+  border:1px solid red;
+}
+.chatspace{
+  border: 1px solid red;
+  justify-content: center;
+}
+.inputbtn{
+  border:1px solid red;
+  display: flex;
+  position:absolute;
+}
+
