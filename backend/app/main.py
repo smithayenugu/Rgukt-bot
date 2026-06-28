@@ -175,6 +175,146 @@ def get_departments_info(query: str) -> str:
 # --- FAQ Lookup Table ---
 # Hardcoded answers for common questions (saves API calls)
 RGUKT_FAQ = {
+    "eligibility_bt": """Eligibility Criteria and Requirements for B.Tech Programs at RGUKT Basar:
+
+PROGRAM STRUCTURE:
+- RGUKT offers a 6-year Integrated B.Tech program after 10th class examination (SSC)
+- First part: 2-year Pre-University Course (PUC) equivalent to (TS) Intermediate
+- Second part: 4-year Engineering course leading to B.Tech degree
+- PUC offers tracks in Mathematics, Physics, Chemistry and Life sciences (MPC + BiPC)
+
+ELIGIBILITY CRITERIA:
+- Candidates must have passed the 10th Class (SSC) or equivalent examination
+- Selection is based on merit in the 10th class board examination
+- Priority is given to top rural students from Telangana (typically within top 5-10%)
+- Admissions are conducted through a counseling process based on merit rank
+- The program is designed for gifted rural youth of Telangana state
+
+B.TECH BRANCHES OFFERED:
+- Chemical Engineering
+- Civil Engineering
+- Computer Science and Engineering (CSE)
+- Electrical Engineering (EEE)
+- Electronics and Communications Engineering (ECE)
+- Mechanical Engineering
+- Metallurgical and Materials Engineering
+
+HOW TO APPLY:
+1. Applications are invited through the official RGUKT website (rgukt.ac.in)
+2. Fill the online application form with personal and academic details
+3. Upload required documents (photograph, signature, certificates)
+4. Pay the application fee online
+5. Appear for counseling based on merit rank
+6. Select preferred branch during counseling
+7. Report to the campus with original documents for verification
+
+For updates, visit https://www.rgukt.ac.in regularly.""",
+
+    "about_rgukt": """About Rajiv Gandhi University of Knowledge Technologies (RGUKT) Basar:
+
+RGUKT Basar is a unique university established by the Government of erstwhile Andhra Pradesh that actively uses Information and Communication Technology (ICT) in teaching. It is perhaps the first of its kind in the country with an educational model that is intensely ICT based.
+
+Key Facts:
+- Located at Basar (the abode of Gnyana Saraswathi, Goddess of knowledge) in Nirmal District, Telangana
+- Campus is set in about 272 acres near the banks of river Godavari
+- Primary objective: provide high quality educational opportunities for the rural youth of the state
+- Houses about 6000 students along with 250 faculty members and 120 support staff
+- Accredited by NAAC with 'C' Grade
+- Recognized Under Sections 2(f) and 12B of the UGC Act, 1956, as a State University
+
+Campus Facilities:
+- Academic blocks with more than 140 ICT equipped classrooms
+- Well-equipped laboratories
+- Libraries with more than 1,00,000 volumes
+- Boys' and girls' hostels and mess blocks
+- Laundromat, bank, ATM, Shopping Complex, post office, primary health center
+- Indoor and outdoor recreational facilities, gymnasium, courts for basketball, badminton, table tennis, cricket
+- 6 hostel blocks (3 for boys, 3 for girls) accommodating around 8000 students
+
+The selection process follows approved rules and has very high competition where only the top rural graduates (mostly within the top 5%) get the opportunity to study at RGUKT.""",
+
+    "vc_role": """Vice Chancellor of RGUKT Basar:
+
+The current Vice Chancellor of RGUKT Basar is Prof. A. Govardhan.
+
+PROFILE:
+- B.E.(CSE) from Osmania University, Hyderabad
+- M.Tech(CS) from Jawaharlal Nehru University (JNU), New Delhi
+- Ph.D(CSE) from JNTU, Hyderabad
+- PGDL(Leadership) from EMERITUS, Singapore
+- Senior Professor of Computer Science & Engineering
+- 30 years of Teaching and Research experience
+- 555+ research papers published in International/National Journals/Conferences
+- Guided 103 Ph.D theses and 140 M.Tech projects
+- 5333 Google Scholar citations with h-index 31
+
+ROLE AND RESPONSIBILITIES:
+The Vice Chancellor is the chief academic and administrative officer of the university. Responsibilities include:
+- Overall administration and governance of the university
+- Chairing academic council and other statutory bodies
+- Implementing academic policies and reforms
+- Overseeing examinations, admissions, and research activities
+- Representing the university at national and international forums
+- Ensuring quality education and institutional development
+
+Previous positions held include: Rector at JNTU Hyderabad, Registrar I/c, Principal at JNTUH CEH, Director of School of Information Technology, Director of Evaluation, and various other leadership roles.
+
+Contact: vc@rgukt.ac.in | Phone: 08752-255111""",
+
+    "grading_system": """Grading System at RGUKT Basar:
+
+The grading system at RGUKT follows a comprehensive evaluation framework as per the Academic Regulations Handbook.
+
+KEY COMPONENTS:
+- The academic performance of students is evaluated through a combination of continuous internal assessment and semester-end examinations
+- Grades are awarded based on the student's performance in theory courses, laboratory work, and project work
+- The grading system uses letter grades with corresponding grade points to calculate the Semester Grade Point Average (SGPA) and Cumulative Grade Point Average (CGPA)
+
+GRADING SCALE:
+- O (Outstanding): 10 grade points
+- A+ (Excellent): 9 grade points
+- A (Very Good): 8 grade points
+- B+ (Good): 7 grade points
+- B (Above Average): 6 grade points
+- C (Average): 5 grade points
+- D (Pass): 4 grade points
+- F (Fail): 0 grade points
+- Ab (Absent): 0 grade points
+
+AWARD OF DIVISION:
+- First Class with Distinction: CGPA >= 8.0
+- First Class: CGPA >= 6.5
+- Second Class: CGPA >= 5.0
+- Pass Class: CGPA >= 4.0
+
+The minimum passing grade in each subject is D (4 grade points). Students who fail (F grade) must appear for remedial examinations or re-register for the course in the subsequent semester.""",
+
+    "tech_fest": """Tech Fest and Cultural Events at RGUKT Basar:
+
+RGUKT Basar encourages students to participate in various technical, cultural, and extracurricular activities to ensure a well-rounded education.
+
+TECHNICAL EVENTS AND CLUBS:
+- Students participate in national-level technical competitions and hackathons
+- Projects like Garuda (drone/aviation projects), BAJA (all-terrain vehicle design), and SAE India competitions
+- E-Cell (Entrepreneurship Cell) for fostering innovation and startup culture
+- Various departmental technical clubs and societies
+
+CULTURAL AND SOCIAL ACTIVITIES:
+- Cultural and Social Activity Club organizes events throughout the year
+- Students are encouraged to get involved in arts, music, drama, debate, and paintings
+- Soft skills and edutainment sessions held from 7:30 PM to 10:30 PM
+- Inter-campus competitions are held regularly
+- NSS (National Service Scheme) activities for community service
+
+CAMPUS LIFE:
+- Daily academic program: 4 periods from 8 AM to 4 PM with lunch break
+- Physical fitness activities in the morning
+- Sports in the evening (indoor games like caroms, chess; outdoor games like volleyball, basketball)
+- Evening programs in soft skills, reading classics, and selected movie programs
+- Students explore talents in art, drama, and music
+
+The goal is to give students a well-rounded education beyond just Sciences and Engineering.""",
+
     "fee": """Tuition and Fees at RGUKT Basar (per annum):
 
 TUITION FEE:
@@ -306,6 +446,26 @@ def get_faq_info(query: str) -> str:
     # Check anti-ragging
     if any(w in q for w in ["ragging", "ragging"]):
         return RGUKT_FAQ["anti ragging"]
+    
+    # Check B.Tech eligibility criteria
+    if any(w in q for w in ["eligibility", "eligibility criteria", "requirements for b.tech", "b.tech eligibility", "btech eligibility", "b tech eligibility"]):
+        return RGUKT_FAQ["eligibility_bt"]
+    
+    # Check about RGUKT
+    if any(w in q for w in ["about rgukt", "about university", "tell me about rgukt", "what is rgukt", "rgukt information", "rgukt basar", "history of rgukt"]):
+        return RGUKT_FAQ["about_rgukt"]
+    
+    # Check VC role
+    if any(w in q for w in ["vice chancellor", "vc role", "role of vc", "role of vice chancellor", "who is vc", "who is the vice chancellor", "vice chancellor name"]):
+        return RGUKT_FAQ["vc_role"]
+    
+    # Check grading system
+    if any(w in q for w in ["grading", "grade", "grading system", "cgpa", "sgpa", "grade point", "how grading works", "how does grading", "award of division", "grade scale"]):
+        return RGUKT_FAQ["grading_system"]
+    
+    # Check tech fest / cultural events
+    if any(w in q for w in ["tech fest", "techfest", "cultural", "fest", "event", "extracurricular", "club", "hackathon", "garuda", "baja", "sae", "competition", "nss", "edutainment", "soft skills"]):
+        return RGUKT_FAQ["tech_fest"]
     
     return None
 
@@ -546,10 +706,16 @@ def find_relevant_urls(query):
         urls.extend([RGUKT_URLS["academics"], RGUKT_URLS["curricula"]])
     if any(w in q for w in ["exam", "test", "result", "grade", "time table", "timetable"]):
         urls.extend([RGUKT_URLS["exams"], RGUKT_URLS["time_table"]])
-    if any(w in q for w in ["about", "history", "mission", "vision"]):
-        urls.extend([RGUKT_URLS["about"], RGUKT_URLS["vision"]])
+    if any(w in q for w in ["about", "history", "mission", "vision", "tell me about rgukt", "what is rgukt"]):
+        urls.extend([RGUKT_URLS["about"], RGUKT_URLS["about_rgukt"], RGUKT_URLS["vision"]])
     if any(w in q for w in ["vice chancellor", "vc", "chancellor", "director", "governing", "administration", "administrative", "officer", "registrar", "dean", "ao "]):
         urls.extend([RGUKT_URLS["vc"], RGUKT_URLS["gc"], RGUKT_URLS["contact"], RGUKT_URLS["administration"]])
+    if any(w in q for w in ["eligibility", "eligibility criteria", "requirements for b.tech", "b.tech eligibility", "btech eligibility"]):
+        urls.extend([RGUKT_URLS["admissions"], RGUKT_URLS["academics"]])
+    if any(w in q for w in ["grading", "grade", "grading system", "cgpa", "sgpa", "grade point", "award of division"]):
+        urls.extend([RGUKT_URLS["exams"], RGUKT_URLS["academics"]])
+    if any(w in q for w in ["tech fest", "techfest", "cultural", "fest", "extracurricular", "club", "hackathon", "edutainment"]):
+        urls.extend([RGUKT_URLS["student_life"], RGUKT_URLS["cultural_club"], RGUKT_URLS["e_cell"]])
     if any(w in q for w in ["hostel", "accommodation", "warden", "chief warden", "outpass", "leave", "mess", "dining"]):
         urls.extend([RGUKT_URLS["hostels"], RGUKT_URLS["anti_ragging"]])
     if any(w in q for w in ["library", "book", "books"]): urls.append(RGUKT_URLS["library"])
@@ -855,7 +1021,7 @@ async def chat(message: ChatMessage):
                 if faq_info:
                     info_sources += f"\n\nRGUKT FAQ Information:\n{faq_info}"
                 if all_content:
-    i               info_sources += f"\n\nRGUKT Website Content:\n{all_content}"
+                    info_sources += f"\n\nRGUKT Website Content:\n{all_content}"
 
                 if info_sources:
                     # Limit context size to avoid 413 errors
