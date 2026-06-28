@@ -850,16 +850,16 @@ async def chat(message: ChatMessage):
 
                 # Combine ALL sources
                 info_sources = ""
-                if faq_info:
-                    info_sources += f"\n\nRGUKT FAQ Information:\n{faq_info}"
                 if pdf_context:
                     info_sources += f"\n\nRGUKT Document Database (from official PDFs):\n{pdf_context}"
+                if faq_info:
+                    info_sources += f"\n\nRGUKT FAQ Information:\n{faq_info}"
                 if all_content:
-                    info_sources += f"\n\nRGUKT Website Content:\n{all_content}"
+    i               info_sources += f"\n\nRGUKT Website Content:\n{all_content}"
 
                 if info_sources:
                     # Limit context size to avoid 413 errors
-                    max_context = 3000
+                    max_context = 6000
                     truncated_sources = info_sources[:max_context]
                     if len(info_sources) > max_context:
                         truncated_sources += "\n\n[Content truncated due to length...]"
