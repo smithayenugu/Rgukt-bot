@@ -161,7 +161,7 @@ function App() {
 
     try {
       // Make API call to get response
-      const response = await fetch("http://localhost:8000/api/chat", {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
